@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wireline — LAS Log Viewer &amp; Formation Evaluation</title>
+<style>
+:root{
+  --bg:#0b0f14;
+  --panel:#111820;
+  --panel-2:#0e141b;
+  --line:#1f2b36;
+  --line-strong:#2c3b49;
+  --text:#dce6ee;
+  --text-dim:#7f93a3;
+  --text-faint:#4d5f6d;
+  --accent:#ffb454;      /* depth / header accent */
+  --gr:#3fbf6f;           /* gamma ray green */
+  --cali:#c9c0a3;         /* caliper tan */
+  --res:#e05a4e;          /* resistivity red */
+  --rhob:#e0526f;         /* density magenta-red */
+  --nphi:#3f8fe0;         /* neutron blue */
+  --vsh:#8a7654;          /* shale volume olive-brown */
+  --phi:#3fbfa8;          /* porosity teal */
+  --sw:#3f6fe0;           /* water saturation blue */
+  --pay:#ffd400;          /* net pay flag */
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:var(--sans); font-size:13px;
+  display:flex; flex-direction:column; height:100vh; overflow:hidden;
+}
+
+/* ---------- header ---------- */
+header{
+  display:flex; align-items:center; gap:18px;
+  padding:10px 16px; background:var(--panel-2);
+  border-bottom:1px solid var(--line); flex-shrink:0;
+}
+header .brand{ display:flex; flex-direction:column; line-height:1.15; }
+header .brand b{ font-size:15px; letter-spacing:.03em; color:var(--text); font-weight:700;}
+header .brand small{ color:var(--text-dim); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;}
+.well-meta{ display:flex; gap:22px; flex-wrap:wrap; font-family:var(--mono); font-size:11.5px; color:var(--text-dim);}
+.well-meta span b{ color:var(--text); font-weight:600;}
+.spacer{flex:1;}
+.dropzone-btn{
+  border:1px solid var(--line-strong); background:var(--panel); color:var(--text);
+  padding:7px 14px; border-radius:4px; cursor:pointer; font-size:12px; font-family:var(--sans);
+  display:flex; align-items:center; gap:8px;
+}
+.dropzone-btn:hover{ border-color:var(--accent); color:var(--accent); }
+#fileInput{ display:none; }
+
+/* ---------- layout ---------- */
+.wrap{ flex:1; display:flex; min-height:0; }
+aside{
+  width:270px; flex-shrink:0; background:var(--panel-2); border-right:1px solid var(--line);
+  overflow-y:auto; padding:14px;
+}
+main{ flex:1; min-width:0; display:flex; flex-direction:column; }
+.tracks-outer{ flex:1; overflow:auto; position:relative; }
+.empty-state{
+  height:100%; display:flex; align-items:center; justify-content:center; flex-direction:column;
+  color:var(--text-faint); gap:10px; text-align:center; padding:40px;
+}
+.empty-state svg{ opacity:.5; }
+.empty-state b{ color:var(--text-dim); font-size:14px; font-weight:600;}
+.empty-state span{ font-size:12px; max-width:340px; }
+
+/* ---------- sidebar sections ---------- */
+.side-section{ margin-bottom:18px; }
+.side-section h4{
+  margin:0 0 8px; font-size:10.5px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--text-faint); font-weight:700; border-bottom:1px solid var(--line); padding-bottom:6px;
+}
+.row{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:7px; }
+.row label{ color:var(--text-dim); font-size:11.5px; flex-shrink:0; }
+.row input[type=number], .row input[type=text], .row select{
+  width:104px; background:var(--panel); border:1px solid var(--line-strong); color:var(--text);
+  border-radius:3px; padding:4px 6px; font-family:var(--mono); font-size:11.5px; text-align:right;
+}
+.row select{ text-align:left; width:110px; font-family:var(--sans); }
+.curve-role-row{ display:flex; flex-direction:column; gap:2px; margin-bottom:9px;}
+.curve-role-row label{ font-size:11px; color:var(--text-dim); }
+.curve-role-row select{ width:100%; text-align:left; font-family:var(--mono); font-size:11.5px; padding:5px 6px;}
+.btn{
+  width:100%; padding:8px; border-radius:4px; border:1px solid var(--line-strong);
+  background:var(--panel); color:var(--text); font-size:12px; cursor:pointer; font-family:var(--sans);
+  margin-top:4px;
+}
+.btn:hover{ border-color:var(--accent); color:var(--accent); }
+.btn.primary{ background:#20303c; border-color:#33495a; color:var(--accent); font-weight:600; }
+.curve-list{ display:flex; flex-direction:column; gap:3px; max-height:150px; overflow-y:auto; }
+.curve-list .c-item{
+  display:flex; justify-content:space-between; font-family:var(--mono); font-size:11px;
+  color:var(--text-dim); padding:3px 5px; border-radius:3px;
+}
+.curve-list .c-item:hover{ background:var(--panel); color:var(--text); }
+.curve-list .c-item span.unit{ color:var(--text-faint); }
+.stats-table{ width:100%; border-collapse:collapse; font-family:var(--mono); font-size:11.5px; }
+.stats-table td{ padding:3px 0; color:var(--text-dim); }
+.stats-table td:last-child{ text-align:right; color:var(--text); font-weight:600; }
+.hint{ font-size:10.5px; color:var(--text-faint); line-height:1.5; margin-top:6px;}
+
+/* ---------- track svg area ---------- */
+.tracks-header{
+  display:flex; background:var(--panel-2); border-bottom:1px solid var(--line-strong);
+  position:sticky; top:0; z-index:5; flex-shrink:0;
+}
+.track-col-header{
+  border-right:1px solid var(--line); padding:8px 6px; text-align:center; flex-shrink:0;
+}
+.track-col-header .tname{ font-size:11px; font-weight:700; letter-spacing:.03em; }
+.track-col-header .tscale{ font-size:9.5px; color:var(--text-faint); font-family:var(--mono); margin-top:2px;}
+.depth-col-header{ width:70px; flex-shrink:0; }
+
+.readout{
+  position:sticky; bottom:0; z-index:6; background:var(--panel-2); border-top:1px solid var(--line-strong);
+  padding:8px 16px; display:flex; gap:26px; font-family:var(--mono); font-size:11.5px; color:var(--text-dim);
+  flex-wrap:wrap; flex-shrink:0;
+}
+.readout b{ color:var(--text); }
+.readout .lab{ color:var(--text-faint); margin-right:4px;}
+
+.zoom-controls{ display:flex; gap:6px; align-items:center; margin-bottom:8px;}
+.zoom-controls input{ width:64px !important; }
+
+footer.note{
+  padding:6px 16px; font-size:10px; color:var(--text-faint); border-top:1px solid var(--line);
+  background:var(--panel-2); flex-shrink:0;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><b>WIRELINE</b><small>LAS Viewer &amp; Formation Evaluation</small></div>
+  <div class="well-meta" id="wellMeta"><span>No file loaded</span></div>
+  <div class="spacer"></div>
+  <button class="dropzone-btn" id="loadBtn">📂 Open LAS file</button>
+  <input type="file" id="fileInput" accept=".las,.txt">
+</header>
+
+<div class="wrap">
+  <aside id="sidebar" style="display:none;">
+
+    <div class="side-section">
+      <h4>Curve roles</h4>
+      <div class="curve-role-row"><label>Gamma ray (GR)</label><select id="role_gr"></select></div>
+      <div class="curve-role-row"><label>Caliper</label><select id="role_cali"></select></div>
+      <div class="curve-role-row"><label>Deep resistivity</label><select id="role_res"></select></div>
+      <div class="curve-role-row"><label>Bulk density (RHOB)</label><select id="role_rhob"></select></div>
+      <div class="curve-role-row"><label>Neutron porosity (NPHI)</label><select id="role_nphi"></select></div>
+    </div>
+
+    <div class="side-section">
+      <h4>Formation evaluation params</h4>
+      <div class="row"><label>Rw (ohm·m @ Tf)</label><input type="number" id="p_rw" value="0.05" step="0.01"></div>
+      <div class="row"><label>Archie a</label><input type="number" id="p_a" value="1" step="0.1"></div>
+      <div class="row"><label>Archie m</label><input type="number" id="p_m" value="2" step="0.1"></div>
+      <div class="row"><label>Archie n</label><input type="number" id="p_n" value="2" step="0.1"></div>
+      <div class="row"><label>Matrix ρma (g/cc)</label><input type="number" id="p_rhoma" value="2.65" step="0.01"></div>
+      <div class="row"><label>Fluid ρfl (g/cc)</label><input type="number" id="p_rhofl" value="1.0" step="0.01"></div>
+      <div class="row"><label>GR clean (API)</label><input type="number" id="p_grclean" value="" step="1" placeholder="auto"></div>
+      <div class="row"><label>GR shale (API)</label><input type="number" id="p_grshale" value="" step="1" placeholder="auto"></div>
+      <div class="row"><label>Vsh model</label>
+        <select id="p_vshmodel"><option value="linear">Linear</option><option value="larionov_t" selected>Larionov (Tertiary)</option><option value="larionov_o">Larionov (older)</option></select>
+      </div>
+    </div>
+
+    <div class="side-section">
+      <h4>Net pay cutoffs</h4>
+      <div class="row"><label>Vsh ≤</label><input type="number" id="c_vsh" value="0.4" step="0.05"></div>
+      <div class="row"><label>Phi ≥</label><input type="number" id="c_phi" value="0.08" step="0.01"></div>
+      <div class="row"><label>Sw ≤</label><input type="number" id="c_sw" value="0.6" step="0.05"></div>
+      <button class="btn primary" id="recalcBtn">Recalculate</button>
+    </div>
+
+    <div class="side-section">
+      <h4>Depth range</h4>
+      <div class="zoom-controls">
+        <input type="number" id="depthFrom" placeholder="from">
+        <span style="color:var(--text-faint)">–</span>
+        <input type="number" id="depthTo" placeholder="to">
+        <button class="btn" id="applyRangeBtn" style="width:auto;padding:6px 10px;">Go</button>
+      </div>
+      <button class="btn" id="resetRangeBtn">Full range</button>
+    </div>
+
+    <div class="side-section">
+      <h4>Zone summary</h4>
+      <table class="stats-table" id="summaryTable"><tbody></tbody></table>
+    </div>
+
+    <div class="side-section">
+      <h4>Curves in file</h4>
+      <div class="curve-list" id="curveList"></div>
+    </div>
+
+    <div class="side-section">
+      <button class="btn" id="exportBtn">⬇ Export processed CSV</button>
+      <div class="hint">Everything runs locally in your browser. No data leaves this page — open this file offline any time.</div>
+    </div>
+
+  </aside>
+
+  <main>
+    <div class="tracks-header" id="tracksHeader" style="display:none;"></div>
+    <div class="tracks-outer" id="tracksOuter">
+      <div class="empty-state" id="emptyState">
+        <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3v18h18"/><path d="M6 15l3-5 3 3 4-7 3 4"/></svg>
+        <b>No LAS file loaded</b>
+        <span>Open a .las well log file to view curve tracks and run a basic formation evaluation — gamma ray, resistivity, density-neutron, shale volume, porosity, water saturation, and net pay, all computed offline.</span>
+      </div>
+    </div>
+    <div class="readout" id="readout" style="display:none;"></div>
+  </main>
+</div>
+
+<footer class="note">LAS 2.0 / 3.0 parser · Larionov &amp; linear Vsh · Density porosity · Archie Sw — approximate, for screening use only, not a substitute for certified petrophysical software.</footer>
+
+<script>
+(function(){
+"use strict";
+
+/* ============================================================
+   LAS PARSER
+   ============================================================ */
+function parseLAS(text){
+  text = text.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+  const lines = text.split("\n");
+  const sections = {}; // letter -> array of raw lines
+  let current = null;
+  for(let raw of lines){
+    const line = raw;
+    const trimmed = line.trim();
+    if(trimmed.startsWith("#") || trimmed==="") continue;
+    if(trimmed.startsWith("~")){
+      current = trimmed[1].toUpperCase();
+      if(!sections[current]) sections[current] = [];
+      continue;
+    }
+    if(current){ sections[current].push(line); }
+  }
+
+  function parseLineItems(arr){
+    // format: MNEM.UNIT  VALUE : DESCRIPTION   (unit optional, value may contain spaces)
+    const items = [];
+    for(let l of (arr||[])){
+      if(l.trim()==="" ) continue;
+      const dotIdx = l.indexOf(".");
+      const colonIdx = l.lastIndexOf(":");
+      if(dotIdx === -1){ continue; }
+      const mnem = l.slice(0,dotIdx).trim();
+      let rest = colonIdx>-1 ? l.slice(dotIdx+1,colonIdx) : l.slice(dotIdx+1);
+      const desc = colonIdx>-1 ? l.slice(colonIdx+1).trim() : "";
+      // rest = UNIT VALUE  (unit is first whitespace-delimited token, may be empty)
+      rest = rest.replace(/\t/g," ");
+      const m = rest.match(/^(\S*)\s*(.*)$/);
+      let unit = m ? m[1] : "";
+      let value = m ? m[2].trim() : rest.trim();
+      items.push({mnem, unit, value, desc});
+    }
+    return items;
+  }
+
+  const versionItems = parseLineItems(sections["V"]);
+  let wrap = "NO";
+  versionItems.forEach(it=>{ if(it.mnem.toUpperCase()==="WRAP") wrap = it.value.toUpperCase(); });
+
+  const wellItems = parseLineItems(sections["W"]);
+  const well = {};
+  wellItems.forEach(it=> well[it.mnem.toUpperCase()] = it);
+
+  const curveItems = parseLineItems(sections["C"]);
+  const curves = curveItems.map((it,i)=>({ mnemonic: it.mnem, unit: it.unit, desc: it.desc, index:i }));
+
+  const paramItems = parseLineItems(sections["P"]);
+  const params = {};
+  paramItems.forEach(it=> params[it.mnem.toUpperCase()] = it);
+
+  let nullVal = -999.25;
+  if(well.NULL) nullVal = parseFloat(well.NULL.value);
+
+  // DATA section
+  const dataLines = (sections["A"]||[]).filter(l=>l.trim()!=="");
+  const ncurves = curves.length;
+  const data = {}; curves.forEach(c=> data[c.mnemonic] = []);
+
+  if(wrap === "YES"){
+    // tokens flow across lines; each depth starts a new row, row has ncurves values total (incl depth)
+    let tokens = [];
+    dataLines.forEach(l=> tokens.push(...l.trim().split(/\s+/)));
+    let i=0;
+    while(i+ncurves <= tokens.length){
+      for(let c=0;c<ncurves;c++){
+        let v = parseFloat(tokens[i+c]);
+        if(isNaN(v) || Math.abs(v-nullVal) < 1e-6) v = null;
+        data[curves[c].mnemonic].push(v);
+      }
+      i+=ncurves;
+    }
+  } else {
+    dataLines.forEach(l=>{
+      const toks = l.trim().split(/\s+/);
+      for(let c=0;c<ncurves;c++){
+        let v = toks[c]!==undefined ? parseFloat(toks[c]) : NaN;
+        if(isNaN(v) || Math.abs(v-nullVal) < 1e-6) v = null;
+        data[curves[c].mnemonic].push(v);
+      }
+    });
+  }
+
+  const depthMnem = curves.length ? curves[0].mnemonic : null;
+  const depth = depthMnem ? data[depthMnem] : [];
+
+  return { wrap, well, curves, params, data, depth, nullVal };
+}
+
+/* ============================================================
+   STATE
+   ============================================================ */
+let LAS = null;
+let roles = { gr:null, cali:null, res:null, rhob:null, nphi:null };
+let computed = null; // {vsh, phid, phin, phit, sw, pay}
+let viewRange = null; // [minDepth, maxDepth]
+let hoverIdx = null;
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+function guessRole(curves, patterns){
+  for(const c of curves){
+    for(const p of patterns) if(p.test(c.mnemonic)) return c.mnemonic;
+  }
+  return "";
+}
+function fmt(v, d){ if(v===null||v===undefined||isNaN(v)) return "—"; return v.toFixed(d===undefined?2:d); }
+function nanmin(arr){ let m=Infinity; for(const v of arr) if(v!==null && v<m) m=v; return isFinite(m)?m:null; }
+function nanmax(arr){ let m=-Infinity; for(const v of arr) if(v!==null && v>m) m=v; return isFinite(m)?m:null; }
+function nanmean(arr){ let s=0,n=0; for(const v of arr) if(v!==null && !isNaN(v)){s+=v;n++;} return n? s/n : null; }
+function percentile(arr, p){
+  const vals = arr.filter(v=>v!==null && !isNaN(v)).sort((a,b)=>a-b);
+  if(!vals.length) return null;
+  const idx = Math.min(vals.length-1, Math.max(0, Math.floor(p*vals.length)));
+  return vals[idx];
+}
+
+/* ============================================================
+   FORMATION EVALUATION
+   ============================================================ */
+function computeFE(){
+  if(!LAS) return;
+  const n = LAS.depth.length;
+  const grArr  = roles.gr   ? LAS.data[roles.gr]   : new Array(n).fill(null);
+  const rhobArr= roles.rhob ? LAS.data[roles.rhob] : new Array(n).fill(null);
+  const nphiArr= roles.nphi ? LAS.data[roles.nphi] : new Array(n).fill(null);
+  const resArr = roles.res  ? LAS.data[roles.res]  : new Array(n).fill(null);
+
+  let grClean = parseFloat(document.getElementById("p_grclean").value);
+  let grShale = parseFloat(document.getElementById("p_grshale").value);
+  if(isNaN(grClean)) grClean = percentile(grArr, 0.05);
+  if(isNaN(grShale)) grShale = percentile(grArr, 0.95);
+
+  const rhoma = parseFloat(document.getElementById("p_rhoma").value) || 2.65;
+  const rhofl = parseFloat(document.getElementById("p_rhofl").value) || 1.0;
+  const rw = parseFloat(document.getElementById("p_rw").value) || 0.05;
+  const a = parseFloat(document.getElementById("p_a").value) || 1;
+  const m = parseFloat(document.getElementById("p_m").value) || 2;
+  const nn = parseFloat(document.getElementById("p_n").value) || 2;
+  const vshModel = document.getElementById("p_vshmodel").value;
+
+  const vsh = new Array(n).fill(null);
+  const phid = new Array(n).fill(null);
+  const phin = new Array(n).fill(null);
+  const phit = new Array(n).fill(null);
+  const sw = new Array(n).fill(null);
+  const pay = new Array(n).fill(false);
+
+  for(let i=0;i<n;i++){
+    // Vshale from GR
+    if(grArr[i]!==null && grClean!==null && grShale!==null && grShale>grClean){
+      let igr = (grArr[i]-grClean)/(grShale-grClean);
+      igr = Math.min(1, Math.max(0, igr));
+      let v;
+      if(vshModel==="linear") v = igr;
+      else if(vshModel==="larionov_o") v = 0.33*(Math.pow(2,2*igr)-1);
+      else v = 0.083*(Math.pow(2,3.7*igr)-1); // larionov tertiary
+      vsh[i] = Math.min(1, Math.max(0, v));
+    }
+    // Density porosity
+    if(rhobArr[i]!==null){
+      let p = (rhoma - rhobArr[i])/(rhoma - rhofl);
+      phid[i] = Math.min(1, Math.max(0, p));
+    }
+    if(nphiArr[i]!==null){
+      let raw = nphiArr[i];
+      // some LAS store NPHI as fraction already <=1, some as % ; normalize
+      phin[i] = raw>1.5 ? raw/100 : raw;
+    }
+    if(phid[i]!==null && phin[i]!==null) phit[i] = (phid[i]+phin[i])/2;
+    else if(phid[i]!==null) phit[i] = phid[i];
+    else if(phin[i]!==null) phit[i] = phin[i];
+
+    // Archie Sw
+    if(phit[i]!==null && phit[i]>0.001 && resArr[i]!==null && resArr[i]>0){
+      let s = Math.pow((a*rw)/(Math.pow(phit[i],m)*resArr[i]), 1/nn);
+      sw[i] = Math.min(1, Math.max(0, s));
+    }
+  }
+
+  const vshCut = parseFloat(document.getElementById("c_vsh").value);
+  const phiCut = parseFloat(document.getElementById("c_phi").value);
+  const swCut  = parseFloat(document.getElementById("c_sw").value);
+  for(let i=0;i<n;i++){
+    if(vsh[i]!==null && phit[i]!==null && sw[i]!==null){
+      pay[i] = vsh[i]<=vshCut && phit[i]>=phiCut && sw[i]<=swCut;
+    }
+  }
+
+  computed = { vsh, phid, phin, phit, sw, pay, grClean, grShale, rw, a, m, n:nn, rhoma, rhofl };
+  updateSummary();
+  render();
+}
+
+function stepDepth(){
+  if(!LAS || LAS.depth.length<2) return 0.5;
+  return Math.abs(LAS.depth[1]-LAS.depth[0]) || 0.5;
+}
+
+function updateSummary(){
+  const tbody = document.querySelector("#summaryTable tbody");
+  if(!computed){ tbody.innerHTML=""; return; }
+  const [i0,i1] = visibleIndexRange();
+  let netCount=0, total=0, phiSum=0, phiN=0, swSum=0, swN=0;
+  for(let i=i0;i<=i1;i++){
+    total++;
+    if(computed.pay[i]) netCount++;
+    if(computed.phit[i]!==null){ phiSum+=computed.phit[i]; phiN++; }
+    if(computed.sw[i]!==null){ swSum+=computed.sw[i]; swN++; }
+  }
+  const step = stepDepth();
+  const netThickness = netCount*step;
+  const grossThickness = total*step;
+  const rows = [
+    ["Gross interval", grossThickness.toFixed(1)+" "+(LAS.curves[0].unit||"")],
+    ["Net pay thickness", netThickness.toFixed(1)+" "+(LAS.curves[0].unit||"")],
+    ["Net-to-gross", grossThickness? (netThickness/grossThickness*100).toFixed(1)+" %" : "—"],
+    ["Avg. porosity (φ)", phiN? (phiSum/phiN*100).toFixed(1)+" %" : "—"],
+    ["Avg. Sw (net)", (function(){
+        let s=0,c=0; for(let i=i0;i<=i1;i++) if(computed.pay[i] && computed.sw[i]!==null){s+=computed.sw[i];c++;}
+        return c? (s/c*100).toFixed(1)+" %" : "—";
+      })()],
+  ];
+  tbody.innerHTML = rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("");
+}
+
+function visibleIndexRange(){
+  if(!LAS) return [0,-1];
+  const d = LAS.depth;
+  let lo = 0, hi = d.length-1;
+  if(viewRange){
+    lo = d.findIndex(v=> v!==null && v>=viewRange[0]);
+    if(lo===-1) lo=0;
+    for(let i=d.length-1;i>=0;i--){ if(d[i]!==null && d[i]<=viewRange[1]){ hi=i; break; } }
+  }
+  return [lo,hi];
+}
+
+/* ============================================================
+   RENDERING
+   ============================================================ */
+const TRACK_DEFS = [
+  { key:"gr_cali", title:"GR / Caliper", type:"linear-multi" },
+  { key:"res", title:"Resistivity", type:"log" },
+  { key:"rhob_nphi", title:"Density–Neutron", type:"linear-multi-dual" },
+  { key:"vsh_phi", title:"Vsh / φ", type:"fill" },
+  { key:"sw", title:"Sw / Net pay", type:"sw" },
+];
+const TRACK_WIDTH = 190;
+const DEPTH_COL_WIDTH = 70;
+const ROW_HEIGHT = 2.4; // px per depth-step row baseline, scaled dynamically
+
+function buildHeader(){
+  const el = document.getElementById("tracksHeader");
+  let html = `<div class="track-col-header depth-col-header"><div class="tname">DEPTH</div><div class="tscale">${LAS.curves[0].unit||""}</div></div>`;
+  const scales = trackScales();
+  TRACK_DEFS.forEach(t=>{
+    const sc = scales[t.key];
+    html += `<div class="track-col-header" style="width:${TRACK_WIDTH}px;color:${sc.color||'var(--text-dim)'}">
+      <div class="tname" style="color:var(--text)">${t.title}</div>
+      <div class="tscale">${sc.label||""}</div>
+    </div>`;
+  });
+  el.innerHTML = html;
+  el.style.display = "flex";
+}
+
+function trackScales(){
+  const [i0,i1] = visibleIndexRange();
+  function rangeOf(arr){
+    const slice = arr.slice(i0,i1+1);
+    let mn = nanmin(slice), mx = nanmax(slice);
+    if(mn===null||mx===null) return [0,1];
+    if(mn===mx){ mn-=1; mx+=1; }
+    return [mn,mx];
+  }
+  const grArr = roles.gr? LAS.data[roles.gr] : [];
+  const caliArr = roles.cali? LAS.data[roles.cali] : [];
+  const resArr = roles.res? LAS.data[roles.res] : [];
+  const rhobArr = roles.rhob? LAS.data[roles.rhob] : [];
+  const nphiArr = roles.nphi? LAS.data[roles.nphi] : [];
+
+  const grR = roles.gr? rangeOf(grArr) : [0,150];
+  const caliR = roles.cali? rangeOf(caliArr) : [6,16];
+  let resR = roles.res? rangeOf(resArr) : [0.2,200];
+  if(resR[0]<=0) resR[0]=0.1;
+  const rhobR = roles.rhob? [1.95,2.95] : [1.95,2.95];
+  const nphiR = [0.45,-0.15]; // reversed, standard log convention
+
+  return {
+    gr_cali: { color:"var(--gr)", label:`GR 0–150 API` , grR:[0,150], caliR },
+    res: { color:"var(--res)", label:`0.2–2000 Ω·m (log)`, resR:[0.2,2000] },
+    rhob_nphi: { color:"var(--rhob)", label:`ρb 1.95–2.95 / φN .45–-.15`, rhobR, nphiR },
+    vsh_phi: { color:"var(--vsh)", label:`0–100 %` },
+    sw: { color:"var(--sw)", label:`Sw 100–0 %` },
+  };
+}
+
+function pathFromSeries(depths, values, i0, i1, xOf, yOf, log){
+  let d = "";
+  let started = false;
+  for(let i=i0;i<=i1;i++){
+    const v = values[i];
+    if(v===null || v===undefined || isNaN(v) || depths[i]===null){ started=false; continue; }
+    const vv = log ? Math.max(v, 1e-3) : v;
+    const x = xOf(vv);
+    const y = yOf(depths[i]);
+    if(!started){ d += `M ${x.toFixed(2)} ${y.toFixed(2)} `; started = true; }
+    else { d += `L ${x.toFixed(2)} ${y.toFixed(2)} `; }
+  }
+  return d;
+}
+
+function render(){
+  if(!LAS || !computed) return;
+  const outer = document.getElementById("tracksOuter");
+  document.getElementById("emptyState").style.display = "none";
+  buildHeader();
+
+  const [i0,i1] = visibleIndexRange();
+  const depths = LAS.depth;
+  const nRows = i1-i0+1;
+  const pxPerRow = Math.max(0.6, Math.min(6, 1800/Math.max(nRows,1))); // adapt density
+  const height = Math.max(400, nRows*pxPerRow);
+  const scales = trackScales();
+
+  function yOf(depth){
+    const dTop = depths[i0], dBot = depths[i1];
+    if(dBot===dTop) return 0;
+    return (depth-dTop)/(dBot-dTop)*height;
+  }
+
+  // Depth ruler
+  let depthSvg = `<svg width="${DEPTH_COL_WIDTH}" height="${height}" style="display:block;background:var(--panel-2)">`;
+  const dTop = depths[i0], dBot = depths[i1];
+  const span = dBot-dTop;
+  const step = span>0 ? niceStep(span) : 10;
+  for(let dv = Math.ceil(dTop/step)*step; dv<=dBot; dv+=step){
+    const y = yOf(dv);
+    depthSvg += `<line x1="0" y1="${y}" x2="${DEPTH_COL_WIDTH}" y2="${y}" stroke="var(--line)" stroke-width="1"/>`;
+    depthSvg += `<text x="6" y="${y-3}" fill="var(--text-dim)" font-size="10" font-family="var(--mono)">${dv.toFixed(0)}</text>`;
+  }
+  depthSvg += `</svg>`;
+
+  let tracksHtml = "";
+  TRACK_DEFS.forEach(t=>{
+    tracksHtml += renderTrack(t, scales[t.key], depths, i0, i1, yOf, height);
+  });
+
+  outer.innerHTML = `<div style="display:flex;">
+    <div style="flex-shrink:0;">${depthSvg}</div>
+    ${tracksHtml}
+  </div>`;
+
+  // hover crosshair
+  outer.querySelectorAll(".trackSvg").forEach(svg=>{
+    svg.addEventListener("mousemove", (e)=>{
+      const rect = svg.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const frac = y/height;
+      const depth = dTop + frac*(dBot-dTop);
+      let closest = i0, bd = Infinity;
+      for(let i=i0;i<=i1;i++){ if(depths[i]===null) continue; const diff=Math.abs(depths[i]-depth); if(diff<bd){bd=diff; closest=i;} }
+      showReadout(closest);
+    });
+  });
+}
+
+function niceStep(span){
+  const target = span/12;
+  const candidates = [1,2,5,10,20,25,50,100,200,250,500,1000];
+  for(const c of candidates) if(c>=target) return c;
+  return 1000;
+}
+
+function renderTrack(def, sc, depths, i0, i1, yOf, height){
+  const w = TRACK_WIDTH;
+  let inner = `<rect x="0" y="0" width="${w}" height="${height}" fill="var(--panel)"/>`;
+  // gridlines
+  for(let gx=0;gx<=4;gx++){
+    const x = gx/4*w;
+    inner += `<line x1="${x}" y1="0" x2="${x}" y2="${height}" stroke="var(--line)" stroke-width="1"/>`;
+  }
+
+  if(def.key==="gr_cali"){
+    if(roles.gr){
+      const [mn,mx] = sc.grR;
+      const xOf = v=> (v-mn)/(mx-mn)*w;
+      inner += `<path d="${pathFromSeries(depths, LAS.data[roles.gr], i0,i1, xOf, yOf, false)}" fill="none" stroke="var(--gr)" stroke-width="1.1"/>`;
+    }
+    if(roles.cali){
+      const [mn,mx] = sc.caliR;
+      const xOf = v=> (v-mn)/(mx-mn)*w;
+      inner += `<path d="${pathFromSeries(depths, LAS.data[roles.cali], i0,i1, xOf, yOf, false)}" fill="none" stroke="var(--cali)" stroke-width="1" stroke-dasharray="3,2"/>`;
+    }
+  }
+  else if(def.key==="res"){
+    if(roles.res){
+      const [mn,mx] = sc.resR;
+      const lmn=Math.log10(mn), lmx=Math.log10(mx);
+      const xOf = v=> (Math.log10(v)-lmn)/(lmx-lmn)*w;
+      inner += `<path d="${pathFromSeries(depths, LAS.data[roles.res], i0,i1, xOf, yOf, true)}" fill="none" stroke="var(--res)" stroke-width="1.1"/>`;
+    }
+  }
+  else if(def.key==="rhob_nphi"){
+    if(roles.rhob){
+      const [mn,mx] = sc.rhobR;
+      const xOf = v=> (v-mn)/(mx-mn)*w;
+      inner += `<path d="${pathFromSeries(depths, LAS.data[roles.rhob], i0,i1, xOf, yOf, false)}" fill="none" stroke="var(--rhob)" stroke-width="1.1"/>`;
+    }
+    if(roles.nphi){
+      const [mn,mx] = sc.nphiR;
+      const normalized = LAS.data[roles.nphi].map(v=> v===null?null: (v>1.5? v/100 : v));
+      const xOf = v=> (v-mn)/(mx-mn)*w;
+      inner += `<path d="${pathFromSeries(depths, normalized, i0,i1, xOf, yOf, false)}" fill="none" stroke="var(--nphi)" stroke-width="1.1" stroke-dasharray="4,2"/>`;
+    }
+  }
+  else if(def.key==="vsh_phi"){
+    const xOfVsh = v=> v*w;
+    const xOfPhi = v=> v/0.4*w; // 0-40% pu scale
+    inner += `<path d="${pathFromSeries(depths, computed.vsh, i0,i1, xOfVsh, yOf,false)} L ${w} ${height} L 0 ${height} Z" fill="var(--vsh)" opacity="0.25" stroke="none"/>`;
+    inner += `<path d="${pathFromSeries(depths, computed.vsh, i0,i1, xOfVsh, yOf,false)}" fill="none" stroke="var(--vsh)" stroke-width="1"/>`;
+    inner += `<path d="${pathFromSeries(depths, computed.phit, i0,i1, xOfPhi, yOf,false)}" fill="none" stroke="var(--phi)" stroke-width="1.3"/>`;
+  }
+  else if(def.key==="sw"){
+    const xOfSw = v=> (1-v)*w; // reversed: high Sw near track left (water), track fills from right (hydrocarbon) per convention high sw=left
+    inner += `<path d="${pathFromSeries(depths, computed.sw, i0,i1, xOfSw, yOf,false)}" fill="none" stroke="var(--sw)" stroke-width="1.2"/>`;
+    // net pay flags
+    for(let i=i0;i<=i1;i++){
+      if(computed.pay[i]){
+        const y = yOf(depths[i]);
+        inner += `<rect x="${w-10}" y="${y-0.6}" width="10" height="1.6" fill="var(--pay)"/>`;
+      }
+    }
+  }
+
+  return `<svg class="trackSvg" width="${w}" height="${height}" style="display:block;border-right:1px solid var(--line);flex-shrink:0;">${inner}</svg>`;
+}
+
+function showReadout(i){
+  hoverIdx = i;
+  const el = document.getElementById("readout");
+  el.style.display = "flex";
+  const d = LAS.depth[i];
+  function v(arr,role,dec){ return role? fmt(LAS.data[role][i],dec) : "—"; }
+  el.innerHTML = `
+    <div><span class="lab">DEPTH</span><b>${fmt(d,1)} ${LAS.curves[0].unit||""}</b></div>
+    <div><span class="lab">GR</span><b style="color:var(--gr)">${v(0,roles.gr,1)}</b></div>
+    <div><span class="lab">RES</span><b style="color:var(--res)">${v(0,roles.res,2)}</b></div>
+    <div><span class="lab">RHOB</span><b style="color:var(--rhob)">${v(0,roles.rhob,3)}</b></div>
+    <div><span class="lab">NPHI</span><b style="color:var(--nphi)">${v(0,roles.nphi,3)}</b></div>
+    <div><span class="lab">Vsh</span><b style="color:var(--vsh)">${fmt(computed.vsh[i],2)}</b></div>
+    <div><span class="lab">φ</span><b style="color:var(--phi)">${fmt(computed.phit[i],3)}</b></div>
+    <div><span class="lab">Sw</span><b style="color:var(--sw)">${fmt(computed.sw[i],2)}</b></div>
+    <div><span class="lab">Net pay</span><b style="color:var(--pay)">${computed.pay[i]?"YES":"no"}</b></div>
+  `;
+}
+
+/* ============================================================
+   UI WIRING
+   ============================================================ */
+function populateRoleSelects(){
+  const sels = {
+    role_gr: roles, role_cali: roles, role_res: roles, role_rhob: roles, role_nphi: roles
+  };
+  const opts = ["<option value=''>— none —</option>"].concat(
+    LAS.curves.map(c=>`<option value="${c.mnemonic}">${c.mnemonic} ${c.unit?("("+c.unit+")"):""}</option>`)
+  ).join("");
+  ["role_gr","role_cali","role_res","role_rhob","role_nphi"].forEach(id=>{
+    document.getElementById(id).innerHTML = opts;
+  });
+  document.getElementById("role_gr").value = roles.gr||"";
+  document.getElementById("role_cali").value = roles.cali||"";
+  document.getElementById("role_res").value = roles.res||"";
+  document.getElementById("role_rhob").value = roles.rhob||"";
+  document.getElementById("role_nphi").value = roles.nphi||"";
+
+  document.getElementById("role_gr").onchange = e=>{ roles.gr=e.target.value||null; computeFE(); };
+  document.getElementById("role_cali").onchange = e=>{ roles.cali=e.target.value||null; computeFE(); };
+  document.getElementById("role_res").onchange = e=>{ roles.res=e.target.value||null; computeFE(); };
+  document.getElementById("role_rhob").onchange = e=>{ roles.rhob=e.target.value||null; computeFE(); };
+  document.getElementById("role_nphi").onchange = e=>{ roles.nphi=e.target.value||null; computeFE(); };
+}
+
+function populateCurveList(){
+  const el = document.getElementById("curveList");
+  el.innerHTML = LAS.curves.map(c=>`<div class="c-item"><span>${c.mnemonic}</span><span class="unit">${c.unit||""}</span></div>`).join("");
+}
+
+function populateWellMeta(){
+  const el = document.getElementById("wellMeta");
+  const w = LAS.well;
+  function get(k){ return w[k]? w[k].value : ""; }
+  const items = [
+    ["WELL", get("WELL")||"Unnamed"],
+    ["FLD", get("FLD")],
+    ["STRT", get("STRT")+" "+(LAS.curves[0].unit||"")],
+    ["STOP", get("STOP")+" "+(LAS.curves[0].unit||"")],
+    ["STEP", get("STEP")],
+    ["CURVES", LAS.curves.length],
+  ].filter(x=>x[1] && x[1]!=="undefined ");
+  el.innerHTML = items.map(x=>`<span>${x[0]} <b>${x[1]}</b></span>`).join("");
+}
+
+function loadFile(file){
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      LAS = parseLAS(e.target.result);
+      if(!LAS.curves.length || !LAS.depth.length){
+        alert("Could not find a valid ~ASCII data section in this file. Please check it is a standard LAS 2.0/3.0 file.");
+        return;
+      }
+      roles = {
+        gr: guessRole(LAS.curves, [/^GR($|[^A-Z])/i, /GAMM/i]),
+        cali: guessRole(LAS.curves, [/^CALI/i, /^CAL($|[^A-Z])/i]),
+        res: guessRole(LAS.curves, [/^RESD/i, /^RT($|[^A-Z])/i, /^ILD/i, /^LLD/i, /^RDEP/i, /^AT90/i]),
+        rhob: guessRole(LAS.curves, [/^RHOB/i, /^DEN($|[^A-Z])/i]),
+        nphi: guessRole(LAS.curves, [/^NPHI/i, /^NPOR/i, /^TNPH/i]),
+      };
+      viewRange = null;
+      document.getElementById("sidebar").style.display = "block";
+      populateRoleSelects();
+      populateCurveList();
+      populateWellMeta();
+      document.getElementById("depthFrom").value = LAS.depth[0]!==null? LAS.depth[0].toFixed(1):"";
+      document.getElementById("depthTo").value = LAS.depth[LAS.depth.length-1]!==null? LAS.depth[LAS.depth.length-1].toFixed(1):"";
+      computeFE();
+    }catch(err){
+      console.error(err);
+      alert("Error parsing LAS file: "+err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+document.getElementById("loadBtn").addEventListener("click", ()=> document.getElementById("fileInput").click());
+document.getElementById("fileInput").addEventListener("change", e=>{
+  if(e.target.files[0]) loadFile(e.target.files[0]);
+});
+document.body.addEventListener("dragover", e=>{ e.preventDefault(); });
+document.body.addEventListener("drop", e=>{
+  e.preventDefault();
+  if(e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+
+document.getElementById("recalcBtn").addEventListener("click", computeFE);
+document.getElementById("applyRangeBtn").addEventListener("click", ()=>{
+  const f = parseFloat(document.getElementById("depthFrom").value);
+  const t = parseFloat(document.getElementById("depthTo").value);
+  if(!isNaN(f) && !isNaN(t)) { viewRange = [Math.min(f,t), Math.max(f,t)]; updateSummary(); render(); }
+});
+document.getElementById("resetRangeBtn").addEventListener("click", ()=>{
+  if(!LAS) return;
+  viewRange = null;
+  document.getElementById("depthFrom").value = LAS.depth[0].toFixed(1);
+  document.getElementById("depthTo").value = LAS.depth[LAS.depth.length-1].toFixed(1);
+  updateSummary(); render();
+});
+
+document.getElementById("exportBtn").addEventListener("click", ()=>{
+  if(!LAS || !computed) return;
+  const [i0,i1] = visibleIndexRange();
+  const depthUnit = LAS.curves[0].unit||"";
+  let csv = `DEPTH(${depthUnit}),GR,RESISTIVITY,RHOB,NPHI,VSH,PHI,SW,NET_PAY\n`;
+  for(let i=i0;i<=i1;i++){
+    csv += [
+      LAS.depth[i],
+      roles.gr? LAS.data[roles.gr][i]:"",
+      roles.res? LAS.data[roles.res][i]:"",
+      roles.rhob? LAS.data[roles.rhob][i]:"",
+      roles.nphi? LAS.data[roles.nphi][i]:"",
+      computed.vsh[i],
+      computed.phit[i],
+      computed.sw[i],
+      computed.pay[i]?1:0
+    ].map(v=> v===null||v===undefined? "" : v).join(",") + "\n";
+  }
+  const filename = (LAS.well.WELL? LAS.well.WELL.value.replace(/\s+/g,"_") : "well") + "_formation_eval.csv";
+
+  if(window.AndroidExport && typeof window.AndroidExport.exportCsv === "function"){
+    // Running inside the Android app shell: hand off to the native
+    // "Save As" dialog, since WebView doesn't handle blob: downloads.
+    window.AndroidExport.exportCsv(filename, csv);
+  } else {
+    const blob = new Blob([csv], {type:"text/csv"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+  }
+});
+
+})();
+</script>
+</body>
+</html>
