@@ -27,9 +27,10 @@ jobs:
 
       - name: Build debug APK
         run: gradle assembleDebug
+        working-directory: ./LasLogViewerAndroid
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: LAS-Log-Viewer-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: LasLogViewerAndroid/app/build/outputs/apk/debug/app-debug.apk
